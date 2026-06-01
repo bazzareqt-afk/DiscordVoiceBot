@@ -1,3 +1,8 @@
+console.log("=== BOT STARTING ===");
+console.log("TOKEN exists:", !!process.env.TOKEN);
+console.log("GUILD_ID:", process.env.GUILD_ID);
+console.log("CHANNEL_ID:", process.env.CHANNEL_ID);
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const {
     joinVoiceChannel,
