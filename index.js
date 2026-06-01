@@ -4,10 +4,16 @@ const {
     VoiceConnectionStatus
 } = require('@discordjs/voice');
 
+console.log('=== BOT STARTING ===');
+console.log('TOKEN exists:', !!process.env.TOKEN);
+console.log('GUILD_ID:', process.env.GUILD_ID);
+console.log('CHANNEL_ID:', process.env.CHANNEL_ID);
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.MessageContent
     ]
 });
@@ -42,9 +48,13 @@ const spamReplies = [
 
 async function connectToVoice() {
     try {
-        console.log('Attempting voice connection...');
+        console.log(
+            `Attempting to join channel ${process.env.CHANNEL_ID}`
+        );
 
-        const guild = await client.guilds.fetch(process.env.GUILD_ID);
+        const guild = await client.guilds.fetch(
+            process.env.GUILD_ID
+        );
 
         connection = joinVoiceChannel({
             channelId: process.env.CHANNEL_ID,
@@ -62,9 +72,15 @@ async function connectToVoice() {
             );
 
             if (
-                newState.status === VoiceConnectionStatus.Disconnected ||
-                newState.status === VoiceConnectionStatus.Destroyed
+                newState.status ===
+                    VoiceConnectionStatus.Disconnected ||
+                newState.status ===
+                    VoiceConnectionStatus.Destroyed
             ) {
+                console.log(
+                    'Voice connection lost, reconnecting...'
+                );
+
                 reconnect();
             }
         });
@@ -79,7 +95,7 @@ function reconnect() {
 
     reconnecting = true;
 
-    console.log('Reconnecting in 10 seconds...');
+    console.log('Reconnecting in 3 seconds...');
 
     try {
         if (connection) {
@@ -90,9 +106,12 @@ function reconnect() {
     }
 
     setTimeout(async () => {
-        reconnecting = false;
-        await connectToVoice();
-    }, 10000);
+        try {
+            await connectToVoice();
+        } finally {
+            reconnecting = false;
+        }
+    }, 3000);
 }
 
 client.once('clientReady', async () => {
@@ -100,33 +119,66 @@ client.once('clientReady', async () => {
 
     await connectToVoice();
 
-    // Check every minute that the connection still exists
-    setInterval(() => {
+    // Backup check every 30 seconds
+    setInterval(async () => {
         try {
+            const guild = await client.guilds.fetch(
+                process.env.GUILD_ID
+            );
+
+            await guild.members.fetch(client.user.id);
+
+            const botMember =
+                guild.members.cache.get(client.user.id);
+
+            const currentChannel =
+                botMember?.voice?.channelId;
+
             if (
-                !connection ||
-                connection.state.status ===
-                    VoiceConnectionStatus.Destroyed
+                currentChannel !==
+                process.env.CHANNEL_ID
             ) {
-                console.log('Voice connection missing');
+                console.log(
+                    `Bot missing from target channel. Current: ${currentChannel}`
+                );
+
                 reconnect();
             }
         } catch (err) {
             console.error(err);
         }
-    }, 60000);
+    }, 30000);
+});
+
+// Instant reconnect if somebody disconnects or moves the bot
+client.on('voiceStateUpdate', (oldState, newState) => {
+    if (newState.id !== client.user.id) return;
+
+    const targetChannel =
+        process.env.CHANNEL_ID;
+
+    if (newState.channelId !== targetChannel) {
+        console.log(
+            'Bot was moved/disconnected. Rejoining...'
+        );
+
+        reconnect();
+    }
 });
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    const content = message.content.toLowerCase();
+    const content =
+        message.content.toLowerCase();
 
     if (!content.includes('when ya')) return;
 
     const now = Date.now();
 
-    if (now - lastWhenYaReply < 10000) {
+    if (
+        now - lastWhenYaReply < 10000
+    ) {
         spamCombo++;
 
         let reply;
@@ -136,21 +188,25 @@ client.on('messageCreate', async (message) => {
                 reply =
                     spamReplies[
                         Math.floor(
-                            Math.random() * spamReplies.length
+                            Math.random() *
+                                spamReplies.length
                         )
                     ];
                 break;
 
             case 2:
-                reply = 'masih aja kampoeng';
+                reply =
+                    'masih aja kampoeng';
                 break;
 
             case 3:
-                reply = 'cari hobi sana kampoeng';
+                reply =
+                    'cari hobi sana kampoeng';
                 break;
 
             case 4:
-                reply = 'mute nih lama lama kampoeng';
+                reply =
+                    'mute nih lama lama kampoeng';
                 break;
 
             case 5:
@@ -159,8 +215,16 @@ client.on('messageCreate', async (message) => {
 
             default:
                 reply =
-                    ['🩴', '🚪', '🙄', '💀', 'kampoeng.'][
-                        Math.floor(Math.random() * 5)
+                    [
+                        '🩴',
+                        '🚪',
+                        '🙄',
+                        '💀',
+                        'kampoeng.'
+                    ][
+                        Math.floor(
+                            Math.random() * 5
+                        )
                     ];
         }
 
@@ -173,19 +237,23 @@ client.on('messageCreate', async (message) => {
 
     const reply =
         normalReplies[
-            Math.floor(Math.random() * normalReplies.length)
+            Math.floor(
+                Math.random() *
+                    normalReplies.length
+            )
         ];
 
     await message.reply(reply);
 });
 
 client.on('error', console.error);
-process.on('unhandledRejection', console.error);
-process.on('uncaughtException', console.error);
-
-console.log('=== BOT STARTING ===');
-console.log('TOKEN exists:', !!process.env.TOKEN);
-console.log('GUILD_ID:', process.env.GUILD_ID);
-console.log('CHANNEL_ID:', process.env.CHANNEL_ID);
+process.on(
+    'unhandledRejection',
+    console.error
+);
+process.on(
+    'uncaughtException',
+    console.error
+);
 
 client.login(process.env.TOKEN);
