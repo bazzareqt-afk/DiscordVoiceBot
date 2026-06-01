@@ -13,8 +13,8 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildVoiceStates
     ]
 });
 
@@ -24,37 +24,22 @@ let reconnecting = false;
 let lastWhenYaReply = 0;
 let spamCombo = 0;
 
+// ===== REPLIES =====
 const normalReplies = [
-    'when ya mulu kampoeng',
-    'kerja dulu kampoeng',
-    'sabar dikit kampoeng',
-    'nanya when ya terus kampoeng',
-    'gue juga ga tau kampoeng',
-    'besok tanya lagi kampoeng',
-    'yang lain ada pertanyaan? kampoeng'
+    'when ya mulu kampoeng'
 ];
 
 const spamReplies = [
-    'ga usah spam gua kampoeng',
-    'baru juga dijawab kampoeng',
-    'sabar napa kampoeng',
-    'nanya mulu kampoeng',
-    'otak when ya doang kampoeng',
-    'cooldown dulu kampoeng',
-    'udah gue jawab kampoeng',
-    'ga capek nanya kampoeng',
-    'coba baca chat sebelumnya kampoeng'
+    'ga usah spam kampoeng',
+    'cooldown dulu kampoeng'
 ];
 
+// ===== VOICE CONNECT =====
 async function connectToVoice() {
     try {
-        console.log(
-            `Attempting to join channel ${process.env.CHANNEL_ID}`
-        );
+        console.log('Connecting to voice...');
 
-        const guild = await client.guilds.fetch(
-            process.env.GUILD_ID
-        );
+        const guild = await client.guilds.fetch(process.env.GUILD_ID);
 
         connection = joinVoiceChannel({
             channelId: process.env.CHANNEL_ID,
@@ -67,29 +52,23 @@ async function connectToVoice() {
         console.log('Voice connection created');
 
         connection.on('stateChange', (oldState, newState) => {
-            console.log(
-                `VOICE: ${oldState.status} -> ${newState.status}`
-            );
+            console.log(`VOICE: ${oldState.status} -> ${newState.status}`);
 
             if (
-                newState.status ===
-                    VoiceConnectionStatus.Disconnected ||
-                newState.status ===
-                    VoiceConnectionStatus.Destroyed
+                newState.status === VoiceConnectionStatus.Disconnected ||
+                newState.status === VoiceConnectionStatus.Destroyed
             ) {
-                console.log(
-                    'Voice connection lost, reconnecting...'
-                );
-
                 reconnect();
             }
         });
+
     } catch (err) {
-        console.error('Voice connection error:', err);
+        console.error('Voice error:', err);
         reconnect();
     }
 }
 
+// ===== RECONNECT =====
 function reconnect() {
     if (reconnecting) return;
 
@@ -98,50 +77,33 @@ function reconnect() {
     console.log('Reconnecting in 3 seconds...');
 
     try {
-        if (connection) {
-            connection.destroy();
-        }
+        if (connection) connection.destroy();
     } catch (err) {
         console.error(err);
     }
 
     setTimeout(async () => {
-        try {
-            await connectToVoice();
-        } finally {
-            reconnecting = false;
-        }
+        reconnecting = false;
+        await connectToVoice();
     }, 3000);
 }
 
+// ===== READY =====
 client.once('clientReady', async () => {
     console.log(`Logged in as ${client.user.tag}`);
 
     await connectToVoice();
 
-    // Backup check every 30 seconds
+    // backup checker
     setInterval(async () => {
         try {
-            const guild = await client.guilds.fetch(
-                process.env.GUILD_ID
-            );
+            const guild = await client.guilds.fetch(process.env.GUILD_ID);
+            const member = await guild.members.fetch(client.user.id);
 
-            await guild.members.fetch(client.user.id);
+            const currentChannel = member.voice.channelId;
 
-            const botMember =
-                guild.members.cache.get(client.user.id);
-
-            const currentChannel =
-                botMember?.voice?.channelId;
-
-            if (
-                currentChannel !==
-                process.env.CHANNEL_ID
-            ) {
-                console.log(
-                    `Bot missing from target channel. Current: ${currentChannel}`
-                );
-
+            if (currentChannel !== process.env.CHANNEL_ID) {
+                console.log('Bot not in correct channel, reconnecting...');
                 reconnect();
             }
         } catch (err) {
@@ -150,82 +112,48 @@ client.once('clientReady', async () => {
     }, 30000);
 });
 
-// Instant reconnect if somebody disconnects or moves the bot
+// ===== VOICE STATE (instant fix if kicked/moved) =====
 client.on('voiceStateUpdate', (oldState, newState) => {
     if (newState.id !== client.user.id) return;
 
-    const targetChannel =
-        process.env.CHANNEL_ID;
-
-    if (newState.channelId !== targetChannel) {
-        console.log(
-            'Bot was moved/disconnected. Rejoining...'
-        );
-
+    if (newState.channelId !== process.env.CHANNEL_ID) {
+        console.log('Bot was moved or disconnected. Rejoining...');
         reconnect();
     }
 });
 
+// ===== MESSAGE HANDLER =====
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    const content =
-        message.content.toLowerCase();
+    // ONLY respond in voice channel chat
+    if (message.channel.id !== process.env.CHANNEL_ID) return;
 
-    if (!content.includes('when ya')) return;
+    // normalize: remove ALL spaces + lowercase
+    const normalized = message.content
+        .toLowerCase()
+        .replace(/\s+/g, '');
+
+    if (!normalized.includes('whenya')) return;
 
     const now = Date.now();
 
-    if (
-        now - lastWhenYaReply < 10000
-    ) {
+    let reply;
+
+    // spam detection (10 seconds)
+    if (now - lastWhenYaReply < 10000) {
         spamCombo++;
 
-        let reply;
-
-        switch (spamCombo) {
-            case 1:
-                reply =
-                    spamReplies[
-                        Math.floor(
-                            Math.random() *
-                                spamReplies.length
-                        )
-                    ];
-                break;
-
-            case 2:
-                reply =
-                    'masih aja kampoeng';
-                break;
-
-            case 3:
-                reply =
-                    'cari hobi sana kampoeng';
-                break;
-
-            case 4:
-                reply =
-                    'mute nih lama lama kampoeng';
-                break;
-
-            case 5:
-                reply = '🩴';
-                break;
-
-            default:
-                reply =
-                    [
-                        '🩴',
-                        '🚪',
-                        '🙄',
-                        '💀',
-                        'kampoeng.'
-                    ][
-                        Math.floor(
-                            Math.random() * 5
-                        )
-                    ];
+        if (spamCombo === 1) {
+            reply = spamReplies[Math.floor(Math.random() * spamReplies.length)];
+        } else if (spamCombo === 2) {
+            reply = 'masih aja kampoeng';
+        } else if (spamCombo === 3) {
+            reply = 'cari hobi sana kampoeng';
+        } else if (spamCombo === 4) {
+            reply = 'mute dulu deh kampoeng';
+        } else {
+            reply = ['🩴', '🙄', '💀', '🚪'][Math.floor(Math.random() * 4)];
         }
 
         await message.reply(reply);
@@ -235,25 +163,15 @@ client.on('messageCreate', async (message) => {
     spamCombo = 0;
     lastWhenYaReply = now;
 
-    const reply =
-        normalReplies[
-            Math.floor(
-                Math.random() *
-                    normalReplies.length
-            )
-        ];
+    reply = normalReplies[Math.floor(Math.random() * normalReplies.length)];
 
     await message.reply(reply);
 });
 
+// ===== SAFETY =====
 client.on('error', console.error);
-process.on(
-    'unhandledRejection',
-    console.error
-);
-process.on(
-    'uncaughtException',
-    console.error
-);
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 
+// ===== LOGIN =====
 client.login(process.env.TOKEN);
